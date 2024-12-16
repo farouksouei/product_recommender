@@ -21,16 +21,9 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import ReactECharts from 'echarts-for-react';
 
 const PCRecommender = () => {
-    const [weights, setWeights] = useState({
-        Brand: 1.0,
-        Processor: 2.0,
-        RAM: 4.0,
-        Has_Sacoche: 0.8,
-        Is_Available: 1.0
-    });
-
     const [requirements, setRequirements] = useState({
         Brand: '',
         Processor: '',
@@ -44,13 +37,8 @@ const PCRecommender = () => {
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
 
-    const handleWeightChange = (e) => {
-        const { name, value } = e.target;
-        setWeights(prev => ({
-            ...prev,
-            [name]: parseFloat(value)
-        }));
-    };
+    const [trainingMetrics, setTrainingMetrics] = useState(null);
+    const [trainingLoading, setTrainingLoading] = useState(false);
 
     const handleRequirementChange = (e) => {
         const { name, value, type } = e.target;
@@ -60,49 +48,7 @@ const PCRecommender = () => {
         }));
     };
 
-    const updateWeights = async () => {
-        setLoading(true);
-        try {
-            await axios.post('http://localhost:8000/update-weights', weights);
-
-            Swal.fire({
-                icon: 'success',
-                title: 'Weights Updated',
-                text: 'Recommendation weights have been successfully updated!',
-                confirmButtonColor: '#3085d6'
-            });
-
-            toast.success('Weights updated successfully!', {
-                position: "top-right",
-                autoClose: 3000,
-                hideProgressBar: false,
-                closeOnClick: true,
-                pauseOnHover: true,
-                draggable: true
-            });
-        } catch (err) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Update Failed',
-                text: 'Failed to update weights: ' + err.message,
-                confirmButtonColor: '#d33'
-            });
-
-            toast.error('Failed to update weights', {
-                position: "top-right",
-                autoClose: 3000,
-                hideProgressBar: false,
-                closeOnClick: true,
-                pauseOnHover: true,
-                draggable: true
-            });
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const getRecommendations = async () => {
-        // Validate input before making API call
         if (!requirements.Brand || !requirements.Processor) {
             Swal.fire({
                 icon: 'warning',
@@ -151,42 +97,87 @@ const PCRecommender = () => {
         }
     };
 
+    const trainModel = async () => {
+        setTrainingLoading(true);
+        try {
+            const response = await axios.post('http://localhost:8000/train-model');
+
+            setTrainingMetrics(response.data);
+
+            toast.success('Model training completed!', {
+                position: "top-right",
+                autoClose: 3000,
+                hideProgressBar: false,
+                closeOnClick: true,
+                pauseOnHover: true,
+                draggable: true
+            });
+        } catch (err) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Training Error',
+                text: 'Failed to train model: ' + err.message,
+                confirmButtonColor: '#d33'
+            });
+
+            toast.error('Failed to train model', {
+                position: "top-right",
+                autoClose: 3000,
+                hideProgressBar: false,
+                closeOnClick: true,
+                pauseOnHover: true,
+                draggable: true
+            });
+        } finally {
+            setTrainingLoading(false);
+        }
+    };
+
+    const getHeatmapOption = (confusionMatrix) => ({
+        tooltip: {
+            position: 'top',
+        },
+        xAxis: {
+            type: 'category',
+            data: ['Predicted 0', 'Predicted 1'],
+            axisLabel: { interval: 0 },
+        },
+        yAxis: {
+            type: 'category',
+            data: ['Actual 1', 'Actual 0'],
+            axisLabel: { interval: 0 },
+        },
+        visualMap: {
+            min: 0,
+            max: Math.max(...confusionMatrix.flat()),
+            calculable: true,
+            orient: 'horizontal',
+            left: 'center',
+            bottom: '15%'
+        },
+        series: [
+            {
+                name: 'Confusion Matrix',
+                type: 'heatmap',
+                data: confusionMatrix.flatMap((row, i) => row.map((value, j) => [j, i, value])),
+                label: {
+                    show: true,
+                },
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 10,
+                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                    }
+                }
+            }
+        ]
+    });
+
     return (
         <Container className="py-4">
             <ToastContainer />
 
             <Row>
-                <Col md={6}>
-                    <Card className="mb-4 shadow">
-                        <CardHeader className="bg-primary text-white">Weights Configuration</CardHeader>
-                        <CardBody>
-                            <Form>
-                                {Object.entries(weights).map(([key, value]) => (
-                                    <FormGroup key={key}>
-                                        <Label className="text-muted">{key}</Label>
-                                        <Input
-                                            type="number"
-                                            step="0.1"
-                                            name={key}
-                                            value={value}
-                                            onChange={handleWeightChange}
-                                            className="form-control-lg"
-                                        />
-                                    </FormGroup>
-                                ))}
-                                <Button
-                                    color="primary"
-                                    onClick={updateWeights}
-                                    disabled={loading}
-                                    className="mt-3 btn-block"
-                                >
-                                    {loading ? 'Updating...' : 'Update Weights'}
-                                </Button>
-                            </Form>
-                        </CardBody>
-                    </Card>
-                </Col>
-
                 <Col md={6}>
                     <Card className="mb-4 shadow">
                         <CardHeader className="bg-success text-white">PC Requirements</CardHeader>
@@ -218,13 +209,7 @@ const PCRecommender = () => {
                                         className="form-control-lg"
                                     >
                                         <option value="">Select Processor</option>
-                                        {[
-                                            'Celeron N4500',
-                                            'I3',
-                                            'I5',
-                                            'I7',
-                                            'AMD Ryzen'
-                                        ].map(processor => (
+                                        {['Celeron N4500', 'I3', 'I5', 'I7', 'AMD Ryzen'].map(processor => (
                                             <option key={processor} value={processor}>{processor}</option>
                                         ))}
                                     </Input>
@@ -283,6 +268,36 @@ const PCRecommender = () => {
                         </CardBody>
                     </Card>
                 </Col>
+
+                <Col md={6}>
+                    <Card className="mb-4 shadow">
+                        <CardHeader className="bg-primary text-white">Train Model</CardHeader>
+                        <CardBody>
+                            <Button
+                                color="primary"
+                                onClick={trainModel}
+                                disabled={trainingLoading}
+                                className="btn-block"
+                            >
+                                {trainingLoading ? 'Training...' : 'Train Model'}
+                            </Button>
+
+                            {trainingMetrics && (
+                                <div className="mt-4">
+                                    <h5 className="text-muted">Training Results</h5>
+                                    <p><strong>Message:</strong> {trainingMetrics.message}</p>
+                                    <p><strong>Accuracy:</strong> {(trainingMetrics.accuracy * 100).toFixed(2)}%</p>
+
+                                    <h6 className="mt-3">Confusion Matrix</h6>
+                                    <ReactECharts
+                                        option={getHeatmapOption(trainingMetrics.confusion_matrix)}
+                                        style={{ height: '300px', width: '100%' }}
+                                    />
+                                </div>
+                            )}
+                        </CardBody>
+                    </Card>
+                </Col>
             </Row>
 
             <Modal
@@ -301,11 +316,9 @@ const PCRecommender = () => {
                                 <tr>
                                     <th>Brand</th>
                                     <th>Processor</th>
-                                    <th>RAM</th>
-                                    <th>Price (DT)</th>
-                                    <th>Similarity Score</th>
-                                    <th>Price Difference</th>
-                                    <th>Final Score</th>
+                                    <th>RAM (GB)</th>
+                                    <th>Has Laptop Bag</th>
+                                    <th>Is Available</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -314,30 +327,12 @@ const PCRecommender = () => {
                                         <td>{rec.Brand}</td>
                                         <td>{rec.Processor}</td>
                                         <td>{rec.RAM}</td>
-                                        <td>{rec['Price (DT)'].toFixed(2)}</td>
-                                        <td>{(rec.Similarity_Score * 100).toFixed(1)}%</td>
-                                        <td>{rec.Price_Difference.toFixed(2)}</td>
-                                        <td>{rec.Final_Score.toFixed(2)}</td>
+                                        <td>{rec.Has_Sacoche ? 'Yes' : 'No'}</td>
+                                        <td>{rec.Is_Available ? 'Yes' : 'No'}</td>
                                     </tr>
                                 ))}
                                 </tbody>
                             </Table>
-
-                            {metrics && (
-                                <div className="mt-4 p-3 bg-light rounded">
-                                    <h5 className="text-muted">Recommendation Metrics</h5>
-                                    <Table borderless>
-                                        <tbody>
-                                        {Object.entries(metrics).map(([key, value]) => (
-                                            <tr key={key}>
-                                                <td className="font-weight-bold">{key}</td>
-                                                <td>{typeof value === 'number' ? value.toFixed(2) : value}</td>
-                                            </tr>
-                                        ))}
-                                        </tbody>
-                                    </Table>
-                                </div>
-                            )}
                         </>
                     )}
                 </ModalBody>
