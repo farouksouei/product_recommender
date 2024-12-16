@@ -15,7 +15,7 @@ import {
     Modal,
     ModalHeader,
     ModalBody,
-    ModalFooter
+    ModalFooter, Alert
 } from 'reactstrap';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -32,8 +32,15 @@ const PCRecommender = () => {
         Is_Available: 1
     });
 
+    const [inferenceData, setInferenceData] = useState({
+        product_name: '',
+        price: ''
+    });
+
     const [recommendations, setRecommendations] = useState([]);
     const [metrics, setMetrics] = useState(null);
+    const [inferenceResult, setInferenceResult] = useState(null);
+    const [inferenceLoading, setInferenceLoading] = useState(false);
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
 
@@ -173,6 +180,34 @@ const PCRecommender = () => {
         ]
     });
 
+    const handleInferenceChange = (e) => {
+        const { name, value } = e.target;
+        setInferenceData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
+    const makeInference = async () => {
+        if (!inferenceData.product_name || !inferenceData.price) {
+            toast.warning('Please fill in both product name and price');
+            return;
+        }
+
+        setInferenceLoading(true);
+        try {
+            // Changed to use query parameters instead of request body
+            const response = await axios.post(`http://localhost:8000/inference?product_name=${encodeURIComponent(inferenceData.product_name)}&price=${encodeURIComponent(inferenceData.price)}`);
+
+            setInferenceResult(response.data);
+            toast.success('Inference completed successfully!');
+        } catch (err) {
+            toast.error('Failed to make inference: ' + (err.response?.data?.detail || err.message));
+        } finally {
+            setInferenceLoading(false);
+        }
+    };
+
     return (
         <Container className="py-4">
             <ToastContainer />
@@ -295,6 +330,63 @@ const PCRecommender = () => {
                                     />
                                 </div>
                             )}
+                        </CardBody>
+                    </Card>
+                </Col>
+            </Row>
+
+            <Row>
+                <Col md={6}>
+                    <Card className="mb-4 shadow">
+                        <CardHeader className="bg-info text-white">Product Availability Prediction</CardHeader>
+                        <CardBody>
+                            <Form>
+                                <FormGroup>
+                                    <Label className="text-muted">Product Name</Label>
+                                    <Input
+                                        type="text"
+                                        name="product_name"
+                                        value={inferenceData.product_name}
+                                        onChange={handleInferenceChange}
+                                        className="form-control-lg"
+                                        placeholder="Enter product name"
+                                    />
+                                </FormGroup>
+
+                                <FormGroup>
+                                    <Label className="text-muted">Price</Label>
+                                    <Input
+                                        type="number"
+                                        name="price"
+                                        value={inferenceData.price}
+                                        onChange={handleInferenceChange}
+                                        className="form-control-lg"
+                                        placeholder="Enter price"
+                                        step="0.01"
+                                        min="0"
+                                    />
+                                </FormGroup>
+
+                                <Button
+                                    color="info"
+                                    onClick={makeInference}
+                                    disabled={inferenceLoading}
+                                    className="mt-3 btn-block"
+                                >
+                                    {inferenceLoading ? 'Predicting...' : 'Predict Availability'}
+                                </Button>
+
+                                {inferenceResult && (
+                                    <Alert color={inferenceResult.prediction === "In stock" ? "success" : "warning"} className="mt-3">
+                                        <h5 className="alert-heading">Prediction Result</h5>
+                                        <p className="mb-0">
+                                            <strong>Product:</strong> {inferenceResult.product_name}<br />
+                                            <strong>Price:</strong> {inferenceResult.price} DT<br />
+                                            <strong>Availability:</strong> {inferenceResult.prediction}
+                                        </p>
+                                    </Alert>
+                                )}
+                            </Form>
                         </CardBody>
                     </Card>
                 </Col>
